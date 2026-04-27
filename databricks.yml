@@ -1,0 +1,28 @@
+bundle:
+  name: prometheux-3p
+
+variables:
+  run_mode:
+    description: "Run mode: 'production' (requires auth) or 'development' (no auth)"
+    default: "production"
+  organization:
+    description: "Organization name"
+    default: "prometheux"
+  username:
+    description: "Default username (only used in development mode)"
+    default: "databricks-user"
+
+resources:
+  apps:
+    prometheux_3p:
+      name: "prometheux"
+      source_code_path: ./src
+      description: "Prometheux - AI-powered Knowledge Graph Platform (SaaS Edition)"
+      permissions:
+        - level: CAN_USE
+          group_name: users
+
+targets:
+  dev:
+    mode: development
+    default: true

@@ -1,0 +1,8 @@
+# Prometheux Databricks 3P App - Configuration
+# ============================================
+# This is the SaaS edition - connects to Prometheux cloud backend
+
+# Application settings
+run_mode: production         # 'production' (requires auth) - recommended for marketplace apps
+organization: prometheux     # Your organization name
+username: databricks-user    # Not used in production mode (auth required)

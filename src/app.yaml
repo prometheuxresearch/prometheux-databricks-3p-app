@@ -1,0 +1,8 @@
+command:
+  - npm
+  - run
+  - start
+
+env:
+  - name: PORT
+    value: "8080"
