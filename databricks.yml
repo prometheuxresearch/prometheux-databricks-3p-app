@@ -17,7 +17,7 @@ resources:
     prometheux_3p:
       name: "prometheux"
       source_code_path: ./src
-      description: "Prometheux - AI-powered Knowledge Graph Platform (SaaS Edition)"
+      description: "Prometheux - AI-powered Ontology Engine"
       permissions:
         - level: CAN_USE
           group_name: users
