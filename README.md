@@ -48,18 +48,28 @@ You have two ways to install Prometheux. Pick **one** and stick with it for that
 
 ### Deploy via Git (recommended)
 
-Databricks App pulls this repository directly, then redeploys automatically on every push to `main`. No local tooling required.
+Databricks Apps pulls this repository directly, then redeploys whenever you trigger a deployment from the same Git source. No local tooling required.
+
+**Step 1 — Create the app**
 
 1. In your Databricks workspace, open **Compute → Apps → Create App**.
 2. Choose **Custom** (do not pick a template).
-3. Give the app a name, e.g. `prometheux`.
-4. Under **Deploy from**, select **Git**:
+3. Give the app a name, e.g. `prometheux`, and click **Create**.
+4. Wait until the app reaches **Active** status.
+
+**Step 2 — Deploy from this repository**
+
+5. With the app selected, click **Deploy** (top right).
+6. In **Create deployment**, choose **From Git** and fill the form:
    - **Repository URL:** `https://github.com/prometheuxresearch/prometheux-databricks-3p-app`
-   - **Branch:** `main`
-   - **Path:** `src`   ← this is required; the app manifest lives in `src/app.yaml`, not at the repo root.
-5. Click **Create**.
+   - **Reference type:** Branch
+   - **Git reference:** `main`
+   - **Source code path:** `src`   ← required; the app manifest (`app.yaml`) lives in `src/`, not at the repo root. Leaving this empty produces *"No command to run and no Python file found"*.
+7. Click **Deploy**.
 
 Databricks will clone the repo, install dependencies (`npm install --production`) and start the static server. The app is reachable at `https://prometheux-<workspace-id>.databricksapps.com`.
+
+To pick up new commits on `main`, click **Deploy** again on the app page — Databricks fetches the latest commit on the configured branch.
 
 ### Deploy via Databricks CLI (alternative)
 
@@ -90,7 +100,7 @@ Other commands:
 
 ## Updates
 
-- **Git deployment:** every push to `main` triggers a redeploy. No action required.
+- **Git deployment:** open the app in **Compute → Apps**, click **Deploy** and confirm. Databricks fetches the latest commit on the configured branch and redeploys.
 - **CLI deployment:** pull the latest changes (`git pull`) and run `./deploy.sh` again.
 
 The reasoning backend (Prometheux Cloud) is updated continuously and independently of the frontend — you don't need to redeploy to receive backend improvements.
