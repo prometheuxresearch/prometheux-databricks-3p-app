@@ -6,3 +6,5 @@ command:
 env:
   - name: NODE_ENV
     value: "production"
+  - name: SUPABASE_FUNCTIONS_URL
+    value: "https://bzvynvfsaqzzqndbylhk.supabase.co/functions/v1"
