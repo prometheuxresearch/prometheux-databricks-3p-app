@@ -97,23 +97,23 @@ async function getAppToken() {
 // ─────────────────────────────────────────────────────────────────────────
 // Service principal SCIM identity (cached for the lifetime of the pod)
 // ─────────────────────────────────────────────────────────────────────────
-// SCIM /Me on the workspace returns the SP's \`userName\` (e.g. "app-5ctusr")
-// and \`displayName\` (e.g. "prometheux"). These don't change after the app
+// SCIM /Me on the workspace returns the SP's `userName` (e.g. "app-5ctusr")
+// and `displayName` (e.g. "prometheux"). These don't change after the app
 // is provisioned, so we look them up once and cache them.
 let cachedPrincipalIdentity = null;
 let inflightPrincipalLookup = null;
 
 async function fetchPrincipalIdentity() {
   const token = await getAppToken();
-  const resp = await fetch(\`\${workspaceUrl()}/api/2.0/preview/scim/v2/Me\`, {
+  const resp = await fetch(`${workspaceUrl()}/api/2.0/preview/scim/v2/Me`, {
     headers: {
-      Authorization: \`Bearer \${token}\`,
+      Authorization: `Bearer ${token}`,
       Accept: 'application/scim+json',
     },
   });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(\`SCIM /Me failed (\${resp.status}): \${text}\`);
+    throw new Error(`SCIM /Me failed (${resp.status}): ${text}`);
   }
   const me = await resp.json();
   return {
@@ -128,7 +128,7 @@ async function getPrincipalIdentity() {
   inflightPrincipalLookup = fetchPrincipalIdentity()
     .then((id) => {
       cachedPrincipalIdentity = id;
-      console.log(\`[principal] resolved userName=\${id.userName}\`);
+      console.log(`[principal] resolved userName=${id.userName}`);
       return id;
     })
     .finally(() => {
