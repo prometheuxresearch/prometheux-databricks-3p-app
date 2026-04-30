@@ -95,6 +95,49 @@ async function getAppToken() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Service principal SCIM identity (cached for the lifetime of the pod)
+// ─────────────────────────────────────────────────────────────────────────
+// SCIM /Me on the workspace returns the SP's \`userName\` (e.g. "app-5ctusr")
+// and \`displayName\` (e.g. "prometheux"). These don't change after the app
+// is provisioned, so we look them up once and cache them.
+let cachedPrincipalIdentity = null;
+let inflightPrincipalLookup = null;
+
+async function fetchPrincipalIdentity() {
+  const token = await getAppToken();
+  const resp = await fetch(\`\${workspaceUrl()}/api/2.0/preview/scim/v2/Me\`, {
+    headers: {
+      Authorization: \`Bearer \${token}\`,
+      Accept: 'application/scim+json',
+    },
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(\`SCIM /Me failed (\${resp.status}): \${text}\`);
+  }
+  const me = await resp.json();
+  return {
+    userName: me.userName || null,
+    displayName: me.displayName || null,
+  };
+}
+
+async function getPrincipalIdentity() {
+  if (cachedPrincipalIdentity) return cachedPrincipalIdentity;
+  if (inflightPrincipalLookup) return inflightPrincipalLookup;
+  inflightPrincipalLookup = fetchPrincipalIdentity()
+    .then((id) => {
+      cachedPrincipalIdentity = id;
+      console.log(\`[principal] resolved userName=\${id.userName}\`);
+      return id;
+    })
+    .finally(() => {
+      inflightPrincipalLookup = null;
+    });
+  return inflightPrincipalLookup;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 // Defense-in-depth: only return tokens for requests originating from the
@@ -125,6 +168,12 @@ app.get('/api/app-context', async (req, res) => {
 
   try {
     const token = await getAppToken();
+    let principal = { userName: null, displayName: null };
+    try {
+      principal = await getPrincipalIdentity();
+    } catch (err) {
+      console.warn('[app-context] principal lookup failed:', err.message);
+    }
     res.set('Cache-Control', 'no-store');
     res.json({
       mode: 'databricks_3p',
@@ -132,6 +181,8 @@ app.get('/api/app-context', async (req, res) => {
       clientId: DATABRICKS_CLIENT_ID,
       appName: DATABRICKS_APP_NAME,
       workspaceId: DATABRICKS_WORKSPACE_ID,
+      principalUserName: principal.userName,
+      principalDisplayName: principal.displayName,
       user: {
         email: req.headers['x-forwarded-email'] || null,
         userId: req.headers['x-forwarded-user'] || null,
