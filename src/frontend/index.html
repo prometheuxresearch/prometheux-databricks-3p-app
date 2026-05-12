@@ -10,44 +10,8 @@
   <meta name="author" content="Prometheux Limited" />
   <link rel="icon" type="image/png" href="/prometheux-icon.png" />
   <meta property="og:image" content="/prometheux-icon.png" />
-  <script>
-    // Redirect to home page on reload (but preserve OAuth tokens!)
-    (function() {
-      // Check if we have OAuth tokens in the URL - if so, don't redirect
-      const hasOAuthTokens = window.location.hash.includes('access_token') || 
-                            window.location.hash.includes('refresh_token') ||
-                            window.location.search.includes('code=');
-      
-      if (hasOAuthTokens) {
-        return; // Preserve OAuth tokens - let the app handle authentication
-      }
-      
-      // Check if this is a page reload (not initial load or navigation)
-      if (performance.navigation.type === performance.navigation.TYPE_RELOAD || 
-          (performance.getEntriesByType && performance.getEntriesByType('navigation')[0] && 
-           performance.getEntriesByType('navigation')[0].type === 'reload')) {
-        // If we're not already on the home page, redirect to it
-        if (window.location.pathname !== '/' || window.location.search || window.location.hash) {
-          window.location.replace('/');
-        }
-      }
-      
-      // Handle F5 or Ctrl+R reload
-      window.addEventListener('beforeunload', function() {
-        sessionStorage.setItem('isReloading', 'true');
-      });
-      
-      // Check if we just reloaded and redirect if needed
-      if (sessionStorage.getItem('isReloading') === 'true') {
-        sessionStorage.removeItem('isReloading');
-        if (window.location.pathname !== '/' || window.location.search || window.location.hash) {
-          window.location.replace('/');
-        }
-      }
-    })();
-  </script>
-  <script type="module" crossorigin src="/assets/index-jRDWliZE.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-BBOoCpbP.css">
+  <script type="module" crossorigin src="/assets/index-BpIHls6G.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-D1iHqZL-.css">
 </head>
 
 <body>
