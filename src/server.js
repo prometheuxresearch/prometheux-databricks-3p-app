@@ -11,9 +11,9 @@ const DATABRICKS_CLIENT_SECRET = process.env.DATABRICKS_CLIENT_SECRET || '';
 const DATABRICKS_APP_NAME = process.env.DATABRICKS_APP_NAME || '';
 const DATABRICKS_WORKSPACE_ID = process.env.DATABRICKS_WORKSPACE_ID || '';
 
-// Supabase Edge Functions base URL (public; not a secret)
+// Prometheux auth backend (Edge Functions) base URL (public; not a secret).
 // Used by /api/prometheux-sso to proxy zero-click login requests.
-const SUPABASE_FUNCTIONS_URL = process.env.SUPABASE_FUNCTIONS_URL || '';
+const PROMETHEUX_AUTH_URL = process.env.PROMETHEUX_AUTH_URL || '';
 
 // Build the workspace URL with https:// prefix (DATABRICKS_HOST may come without scheme)
 function workspaceUrl() {
@@ -201,21 +201,21 @@ app.get('/api/app-context', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// /api/prometheux-sso — zero-click login bridge to Supabase
+// /api/prometheux-sso — zero-click login bridge to Prometheux auth backend
 // ─────────────────────────────────────────────────────────────────────────
 // The browser hits this endpoint at AuthProvider mount (3P mode only).
 // We mint a fresh app-principal token and forward it (plus the Databricks
-// proxy-injected user identity headers) to the `databricks-sso` Supabase
-// Edge Function, which:
+// proxy-injected user identity headers) to the `databricks-sso` Edge
+// Function, which:
 //   - validates the SP token via SCIM /Me,
-//   - upserts the Supabase user / profile / Platform application request,
+//   - upserts the Prometheux user / profile / Platform application request,
 //   - returns a session pair { access_token, refresh_token } to the browser.
-// SUPABASE_SERVICE_ROLE_KEY never lives in this pod — it lives in the EF.
+// The service-role key never lives in this pod — it lives in the EF.
 app.post('/api/prometheux-sso', async (req, res) => {
   if (!isSameOrigin(req)) {
     return res.status(403).json({ error: 'cross-origin requests not allowed' });
   }
-  if (!SUPABASE_FUNCTIONS_URL) {
+  if (!PROMETHEUX_AUTH_URL) {
     return res.status(500).json({ error: 'sso_not_configured' });
   }
 
@@ -226,7 +226,7 @@ app.post('/api/prometheux-sso', async (req, res) => {
 
   try {
     const spToken = await getAppToken();
-    const ssoResp = await fetch(`${SUPABASE_FUNCTIONS_URL}/databricks-sso`, {
+    const ssoResp = await fetch(`${PROMETHEUX_AUTH_URL}/databricks-sso`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${spToken}`,
