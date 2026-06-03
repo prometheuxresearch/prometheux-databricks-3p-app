@@ -1,3 +1,25 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Prometheux Databricks 3P App — runtime manifest
+#
+# This app is a stateless Node.js static server that serves a pre-built React
+# frontend. It does NOT use any Databricks-side resources beyond its own
+# auto-provisioned App Service Principal:
+#   - no Unity Catalog tables
+#   - no SQL warehouses
+#   - no model serving endpoints
+#   - no jobs / volumes / secrets (consumer-side)
+#
+# All compute happens client-side (frontend) and on Prometheux Cloud
+# (`api.prometheux.ai`). The workspace API is contacted only through the App SP
+# (M2M OAuth via DATABRICKS_CLIENT_ID/SECRET — auto-injected by Databricks Apps,
+# never declared by the provider).
+#
+# Required egress (declared in EXTERNAL_DOMAINS.md):
+#   - <workspace>.cloud.databricks.com / .azuredatabricks.net / .gcp.databricks.com
+#   - auth.prometheux.ai
+#   - api.prometheux.ai
+# ─────────────────────────────────────────────────────────────────────────────
+
 command:
   - sh
   - -c

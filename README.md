@@ -120,6 +120,20 @@ A Prometheux administrator approves the request. The user is then notified and c
 
 Each Databricks workspace becomes its own Prometheux organization. Access requests are scoped per workspace.
 
+## Network egress
+
+This app contacts three external hosts at runtime:
+
+| Host | Purpose |
+|---|---|
+| `<your-workspace>.cloud.databricks.com` (or Azure/GCP equivalent) | Workspace API (SCIM, Clusters, Libraries, Jobs, OIDC token endpoint) |
+| `auth.prometheux.ai` | Prometheux authentication backend (zero-click SSO bridge, user account management) |
+| `api.prometheux.ai` | Prometheux Cloud reasoning backend (Vadalog inference, ontology and knowledge-graph operations) |
+
+If your workspace uses a **Serverless Egress Gateway (SEG)** or any other network policy that restricts outbound traffic, your account admin must allowlist the two `prometheux.ai` hosts. The workspace host is implicitly reachable.
+
+The app does **not** contact any analytics provider, advertising network, CDN-hosted runtime script, or external secret store. See [`EXTERNAL_DOMAINS.md`](EXTERNAL_DOMAINS.md) for the full declaration with traffic direction and data sent.
+
 ## Configuration
 
 The CLI deployment reads `bundle-vars.yml` (created from `bundle-vars.example.yml` on first run):
