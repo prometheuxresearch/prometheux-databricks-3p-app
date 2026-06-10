@@ -10,14 +10,21 @@
   <meta name="author" content="Prometheux Limited" />
   <link rel="icon" type="image/png" href="/prometheux-icon.png" />
   <meta property="og:image" content="/prometheux-icon.png" />
-  <script type="module" crossorigin src="/assets/index-WMugZbLW.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CDjcU6s6.css">
+  <script type="module" crossorigin src="/assets/index-Cvova1VZ.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Du0bejJH.css">
 </head>
 
 <body>
   <div id="root"></div>
-  <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
-  <script type="module" src="https://unpkg.com/@dotlottie/player-component@latest/dist/dotlottie-player.mjs"></script>
+  <!--
+    Third-party CDN scripts have been removed for production deployments:
+      - cdn.gpteng.co/gptengineer.js : Lovable AI editor telemetry, no runtime use.
+      - unpkg.com/@dotlottie/player-component@latest : now bundled locally via
+        `npm install @dotlottie/player-component` and imported in src/main.tsx.
+    Removing both eliminates external CDN dependencies at runtime, satisfies the
+    Databricks Marketplace security review (declared egress only), and lets the
+    lockfile pin the exact dotlottie version.
+  -->
 </body>
 
 </html>

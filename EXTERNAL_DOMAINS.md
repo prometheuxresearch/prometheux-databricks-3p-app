@@ -22,14 +22,36 @@ runtime, with the purpose and traffic direction. It is intended for:
 ## Hosts NOT contacted
 
 For completeness, the following common third-party services **are not** contacted
-by this app:
+by this app. Each was either never used, or was removed in the v1.0.1 hardening
+pass following the Marketplace security review:
 
-- No analytics provider (PostHog, Segment, Amplitude, Google Analytics, etc.)
-  is bundled in the Marketplace build. The frontend explicitly tree-shakes any
-  telemetry SDK at build time when the API key is not provided.
+- **PostHog / `*.posthog.com`** — the SDK (`posthog-js`, `posthog-js/react`) is
+  fully tree-shaken from the 3P bundle by a Vite resolve alias that swaps the
+  service module for a no-op stub whenever `VITE_PUBLIC_POSTHOG_KEY` is not set.
+  No analytics, no session replay, no telemetry of any kind ships.
+- **Lovable AI / `cdn.gpteng.co`** — the editor-only `gptengineer.js` script
+  tag was removed from `index.html`.
+- **dotLottie / `unpkg.com`** — the `<dotlottie-player>` custom element is now
+  installed locally as `@dotlottie/player-component` and registered from
+  `src/main.tsx`. No CDN request at runtime.
+- **`flagcdn.com`** — country flags in the login-activity list are rendered as
+  Unicode Regional Indicator Symbols in the 3P build (build-time gate via
+  `import.meta.env.VITE_DATABRICKS_3P_MODE`); the CDN URL literal is dropped by
+  esbuild dead-code elimination.
+- **Google Fonts / `fonts.googleapis.com`** — Inter is shipped locally via
+  `@fontsource-variable/inter`. The Deciphera demo dashboard's stylesheet
+  previously imported a Google Fonts URL but is unreachable from the live route
+  tree (and the import was removed anyway).
+- **`authjs.dev`** — the Google "G" icon on the social-login button is now
+  inlined as SVG. No remote image request.
+- **`calendly.com`** — the "Contact Support" CTA in the onboarding fallback
+  page is gated behind a build-time flag and removed from the 3P bundle by DCE.
+- **`app.snowflake.com`** — the Snowflake-specific compute-switch overlay is
+  gated behind `VITE_SNOWFLAKE_MODE` (not set in the 3P build); the URL literal
+  is dropped by DCE.
 - No advertising / tracking pixels.
-- No CDN-hosted runtime scripts (all assets are served from the Databricks App
-  origin itself).
+- No CDN-hosted runtime scripts. All JS, CSS, fonts, icons, and Lottie players
+  are served from the Databricks App origin itself.
 - No external secret store. Credentials come exclusively from
   `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`, both injected by the
   Databricks Apps runtime, never embedded in source.
