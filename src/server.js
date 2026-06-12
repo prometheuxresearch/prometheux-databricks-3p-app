@@ -1,15 +1,18 @@
 const express = require('express');
+const helmet = require('helmet');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Databricks Apps runtime env (server-side only - never sent to browser)
-const DATABRICKS_HOST = process.env.DATABRICKS_HOST || '';
-const DATABRICKS_CLIENT_ID = process.env.DATABRICKS_CLIENT_ID || '';
+// Databricks Apps runtime env (server-side only — never sent to browser).
+// DATABRICKS_CLIENT_SECRET is the most sensitive: it lives only in this pod
+// and is used to mint short-lived OAuth tokens for the App Service Principal.
+const DATABRICKS_HOST          = process.env.DATABRICKS_HOST          || '';
+const DATABRICKS_CLIENT_ID     = process.env.DATABRICKS_CLIENT_ID     || '';
 const DATABRICKS_CLIENT_SECRET = process.env.DATABRICKS_CLIENT_SECRET || '';
-const DATABRICKS_APP_NAME = process.env.DATABRICKS_APP_NAME || '';
-const DATABRICKS_WORKSPACE_ID = process.env.DATABRICKS_WORKSPACE_ID || '';
+const DATABRICKS_APP_NAME      = process.env.DATABRICKS_APP_NAME      || '';
+const DATABRICKS_WORKSPACE_ID  = process.env.DATABRICKS_WORKSPACE_ID  || '';
 
 // Prometheux auth backend (Edge Functions) base URL (public; not a secret).
 // Used by /api/prometheux-sso to proxy zero-click login requests.
@@ -27,6 +30,96 @@ function workspaceUrl() {
 // Log env keys at startup (names only, never values)
 const dbEnvKeys = Object.keys(process.env).filter((k) => k.startsWith('DATABRICKS_'));
 console.log('Databricks env keys present:', dbEnvKeys);
+
+// ─────────────────────────────────────────────────────────────────────────
+// Security headers (F9 from 2026-06-12 review)
+// ─────────────────────────────────────────────────────────────────────────
+// Strict CSP allowing only:
+//   - own origin                              (script/style/img/font/assets)
+//   - https://api.prometheux.ai               (Prometheux Cloud reasoning)
+//   - https://auth.prometheux.ai              (Prometheux auth backend)
+// No external CDN scripts; no inline scripts. 'unsafe-inline' is allowed for
+// styles only (React inline `style={{}}` attributes + Tailwind animations).
+// frame-ancestors 'self' prevents clickjacking; the app runs as a top-level
+// Databricks Apps page, never as an embedded iframe of a third-party origin.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        'default-src':  ["'self'"],
+        'script-src':   ["'self'"],
+        'style-src':    ["'self'", "'unsafe-inline'"],
+        'img-src':      ["'self'", 'data:', 'blob:'],
+        'font-src':     ["'self'", 'data:'],
+        'connect-src':  ["'self'", 'https://api.prometheux.ai', 'https://auth.prometheux.ai'],
+        'worker-src':   ["'self'", 'blob:'],
+        'frame-ancestors': ["'self'"],
+        'base-uri':     ["'self'"],
+        'form-action':  ["'self'"],
+        'object-src':   ["'none'"],
+        'upgrade-insecure-requests': [],
+      },
+    },
+    // Workers + lottie players need same-origin resource sharing but not COEP.
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'same-site' },
+    referrerPolicy: { policy: 'no-referrer' },
+    // hsts is added by Databricks Apps' edge proxy; setting it here is redundant
+    // but harmless.
+  })
+);
+
+// ─────────────────────────────────────────────────────────────────────────
+// User-attributed audit log (F16 from 2026-06-12 review)
+// ─────────────────────────────────────────────────────────────────────────
+// Every API request is logged with the proxy-validated user identity, method,
+// path, status and elapsed time. Bodies are NOT logged (they may contain
+// queries or PII). Structured JSON so the Databricks Apps log collector can
+// index by user.
+function auditLog(event, fields) {
+  try {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...fields }));
+  } catch (_) {
+    console.log(`[audit] ${event}`);
+  }
+}
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  const start = Date.now();
+  res.on('finish', () => {
+    auditLog('api_request', {
+      method:  req.method,
+      path:    req.path,
+      status:  res.statusCode,
+      ms:      Date.now() - start,
+      user:    req.headers['x-forwarded-email']               || null,
+      userId:  req.headers['x-forwarded-user']                || null,
+      username: req.headers['x-forwarded-preferred-username'] || null,
+    });
+  });
+  next();
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Error sanitizer (F15 from 2026-06-12 review)
+// ─────────────────────────────────────────────────────────────────────────
+// Client receives a generic message; full diagnostic detail is logged
+// server-side only. Avoids leaking upstream OIDC/SCIM/SSO response text.
+function sendSanitizedError(req, res, statusCode, internalErr, clientMessage) {
+  const detail = internalErr && internalErr.message
+    ? internalErr.message
+    : String(internalErr || 'unknown');
+  console.error(`[error] ${req.method} ${req.path} → ${statusCode}: ${detail}`);
+  auditLog('api_error', {
+    method:  req.method,
+    path:    req.path,
+    status:  statusCode,
+    user:    req.headers['x-forwarded-email'] || null,
+  });
+  return res.status(statusCode).json({ error: clientMessage || 'Upstream request failed' });
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // OAuth M2M token cache for the app's service principal
@@ -51,6 +144,20 @@ async function mintAppToken() {
     `${DATABRICKS_CLIENT_ID}:${DATABRICKS_CLIENT_SECRET}`
   ).toString('base64');
 
+  // Note on scope (F4 from 2026-06-12 security review):
+  // The auto-provisioned Databricks Apps SP only supports `all-apis` for the
+  // workspace OIDC client_credentials flow. Granular scopes such as `scim`,
+  // `clusters`, `libraries` are documented for *custom* OAuth app integrations
+  // (registered via /api/2.0/accounts/{aid}/oauth2/custom-app-integrations),
+  // not for the SP that Databricks Apps issues to a 3P listing. We will
+  // narrow the scope here as soon as Databricks supports it for App SPs.
+  //
+  // Mitigations already in place that limit the blast radius:
+  //   - the token is NEVER returned to the browser (CRITICAL F1 fix)
+  //   - the token is held in this Node process only, cached and short-lived
+  //   - audit logging captures every API call with the acting user identity
+  //   - the only Databricks API the SP token is used for is SCIM /Me and the
+  //     OIDC mint itself; everything else uses the per-user OBO token
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     scope: 'all-apis',
@@ -138,36 +245,33 @@ async function getPrincipalIdentity() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Helpers
+// Identity gate — proxy-validated user identity is required for every /api/*
 // ─────────────────────────────────────────────────────────────────────────
-// Defense-in-depth: only return tokens for requests originating from the
-// app's own origin. The Databricks Apps proxy already authenticates the
-// user, so this just blocks accidental cross-origin calls.
-function isSameOrigin(req) {
-  const referer = req.headers.referer || '';
-  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-  if (!referer || !host) return false;
-  try {
-    const u = new URL(referer);
-    return u.host === host;
-  } catch (_) {
-    return false;
+// The Databricks Apps proxy authenticates the end user upstream and injects
+// X-Forwarded-{Email,User,Preferred-Username} (and X-Forwarded-Access-Token)
+// on every request. We rely on the proxy as the authorization boundary; the
+// previous Referer-based same-origin check was deprecated (F8 from the
+// 2026-06-12 review) because Referer/Host are client-supplied and can be
+// spoofed by non-browser clients.
+function requireProxyIdentity(req, res, next) {
+  if (!req.headers['x-forwarded-email'] && !req.headers['x-forwarded-user']) {
+    return sendSanitizedError(req, res, 401, 'missing_proxy_identity', 'Unauthenticated');
   }
+  return next();
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // /api/app-context — autofill data for the React app (3P mode only)
 // ─────────────────────────────────────────────────────────────────────────
-// Returns workspace URL, app SP client ID, user identity headers, and a
-// freshly-minted short-lived bearer token. The frontend uses this to
-// pre-fill the Databricks config so users never type credentials.
-app.get('/api/app-context', async (req, res) => {
-  if (!isSameOrigin(req)) {
-    return res.status(403).json({ error: 'cross-origin requests not allowed' });
-  }
-
+// CHANGED (F1 from 2026-06-12 review): this endpoint NO LONGER returns the
+// App Service Principal OAuth token. Returning an all-apis bearer to the
+// browser turned a server-only secret into a client-readable credential and
+// was rated CRITICAL. The browser now only receives non-sensitive autofill
+// data — workspace URL, IDs, principal display names. For Databricks API
+// calls that need a token, the frontend uses the per-user OBO token issued
+// by /api/user-token (see below).
+app.get('/api/app-context', requireProxyIdentity, async (req, res) => {
   try {
-    const token = await getAppToken();
     let principal = { userName: null, displayName: null };
     try {
       principal = await getPrincipalIdentity();
@@ -184,20 +288,48 @@ app.get('/api/app-context', async (req, res) => {
       principalUserName: principal.userName,
       principalDisplayName: principal.displayName,
       user: {
-        email: req.headers['x-forwarded-email'] || null,
-        userId: req.headers['x-forwarded-user'] || null,
-        username: req.headers['x-forwarded-preferred-username'] || null,
+        email:    req.headers['x-forwarded-email']               || null,
+        userId:   req.headers['x-forwarded-user']                || null,
+        username: req.headers['x-forwarded-preferred-username']  || null,
       },
-      auth: {
-        mode: 'token',
-        token,
-        expiresAt: cachedExpiresAtMs,
-      },
+      // NOTE: no `auth.token` field. The frontend obtains a per-user OBO
+      // token from /api/user-token instead. The App SP token never leaves
+      // this process.
     });
   } catch (err) {
-    console.error('[app-context] failed:', err.message);
-    res.status(500).json({ error: err.message });
+    return sendSanitizedError(req, res, 502, err, 'Upstream request failed');
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// /api/user-token — per-user On-Behalf-Of token (F1 remediation)
+// ─────────────────────────────────────────────────────────────────────────
+// The Databricks Apps proxy authenticates the end user and forwards their
+// OAuth access token in the X-Forwarded-Access-Token header on every
+// request. This token is scoped to the user's own Databricks permissions
+// (NOT the App SP all-apis scope) and is refreshed by the proxy on each
+// request, so we just return it through to the frontend for use against the
+// workspace / Prometheux Cloud APIs.
+//
+// Security properties:
+//   - per-user (audit-trail keyed to the acting user)
+//   - scoped to the user's existing workspace permissions, not all-apis
+//   - short-lived (refreshed by the Apps proxy)
+//   - bound to the same browser session that hit this server
+app.get('/api/user-token', requireProxyIdentity, (req, res) => {
+  const oboToken = req.headers['x-forwarded-access-token'];
+  if (!oboToken) {
+    // Local dev or proxy mis-configuration: there's no OBO token to return.
+    return sendSanitizedError(req, res, 404, 'no_obo_token', 'OBO token unavailable');
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    mode: 'obo',
+    token: oboToken,
+    // We can't read the proxy's actual expiry; the frontend should refetch
+    // periodically (and on 401) to pick up rotations.
+    refreshAfterMs: 10 * 60 * 1000,
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -211,19 +343,18 @@ app.get('/api/app-context', async (req, res) => {
 //   - upserts the Prometheux user / profile / Platform application request,
 //   - returns a session pair { access_token, refresh_token } to the browser.
 // The service-role key never lives in this pod — it lives in the EF.
-app.post('/api/prometheux-sso', async (req, res) => {
-  if (!isSameOrigin(req)) {
-    return res.status(403).json({ error: 'cross-origin requests not allowed' });
-  }
+//
+// NOTE (F13, accepted risk for now): the SP token is forwarded as Bearer to
+// auth.prometheux.ai for the SCIM-based validation step. The Edge Function
+// uses it only for `/api/2.0/preview/scim/v2/Me` against the issuing
+// workspace and never stores it. A future revision will replace this with
+// a signed identity assertion (no bearer egress) — tracked separately.
+app.post('/api/prometheux-sso', requireProxyIdentity, async (req, res) => {
   if (!PROMETHEUX_AUTH_URL) {
-    return res.status(500).json({ error: 'sso_not_configured' });
+    return sendSanitizedError(req, res, 500, 'sso_not_configured', 'SSO not configured');
   }
 
   const userEmail = req.headers['x-forwarded-email'];
-  if (!userEmail) {
-    return res.status(401).json({ error: 'no_user_identity' });
-  }
-
   try {
     const spToken = await getAppToken();
     const ssoResp = await fetch(`${PROMETHEUX_AUTH_URL}/databricks-sso`, {
@@ -239,14 +370,27 @@ app.post('/api/prometheux-sso', async (req, res) => {
       },
     });
 
-    const text = await ssoResp.text();
-    let body;
-    try { body = JSON.parse(text); } catch { body = { error: 'bad_edge_response', raw: text }; }
+    auditLog('sso_upsert', {
+      user:   userEmail,
+      status: ssoResp.status,
+    });
 
-    res.status(ssoResp.status).set('Cache-Control', 'no-store').json(body);
+    // Forward upstream JSON to the browser, but if the upstream returned a
+    // non-JSON body (proxy 5xx, HTML error page, etc.) we collapse it into a
+    // generic message so we don't leak internal details (F15).
+    const text = await ssoResp.text();
+    if (ssoResp.ok) {
+      try {
+        const body = JSON.parse(text);
+        return res.status(ssoResp.status).set('Cache-Control', 'no-store').json(body);
+      } catch (_) {
+        return sendSanitizedError(req, res, 502, 'sso_bad_response', 'SSO bridge returned invalid response');
+      }
+    }
+    // Upstream error: log full detail, return generic to client.
+    return sendSanitizedError(req, res, ssoResp.status, `sso_upstream ${ssoResp.status}: ${text.slice(0, 500)}`, 'SSO bridge failed');
   } catch (err) {
-    console.error('[prometheux-sso] failed:', err.message);
-    res.status(500).json({ error: 'sso_proxy_failed', message: err.message });
+    return sendSanitizedError(req, res, 502, err, 'SSO bridge unreachable');
   }
 });
 

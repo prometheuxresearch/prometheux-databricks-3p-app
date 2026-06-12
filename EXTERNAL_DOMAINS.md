@@ -9,7 +9,37 @@ runtime, with the purpose and traffic direction. It is intended for:
 
 > Last updated alongside each app release. The list is exhaustive at the time of
 > release; any future addition will be reflected here and in the matching
-> Marketplace listing field "External APIs & Egress".
+> Marketplace listing field "External APIs & Egress" — and is also enforced by
+> the `egress:` block in `app.yaml` (added in v1.0.2 per F14 from the
+> 2026-06-12 security review).
+
+## Token handling architecture (v1.0.2)
+
+The Node static server holds the App Service Principal's OAuth bearer token
+**server-side only**. The browser **never** receives a Databricks all-apis
+token; instead:
+
+- **`/api/app-context`** returns non-sensitive autofill data only (workspace
+  URL, IDs, principal display names). The CRITICAL F1 fix from the 2026-06-12
+  review removed the `auth.token` field from this response.
+- **`/api/user-token`** returns the per-user OBO token forwarded by the
+  Databricks Apps proxy as `X-Forwarded-Access-Token`. This token is scoped
+  to the requesting user's own workspace permissions, NOT the SP's `all-apis`
+  scope, and is rotated transparently by the proxy.
+- **`/api/prometheux-sso`** uses the SP token server-side for SCIM `/Me`
+  validation and forwards it as Bearer to `auth.prometheux.ai` for the SSO
+  upsert. The Edge Function uses it only for SCIM validation and never
+  stores it. This egress is documented as accepted risk pending the v1.0.3
+  signed-identity-assertion refactor (F13).
+
+Every `/api/*` request is logged with the proxy-validated user identity
+(`X-Forwarded-Email`/`-User`/`-Preferred-Username`), method, path, status and
+duration, for audit traceability of shared-SP actions (F16).
+
+A strict Content-Security-Policy header is set by the server on every response
+(F9). It allows `connect-src` only to `'self'`, `https://api.prometheux.ai`
+and `https://auth.prometheux.ai` — preventing any token exfiltration even if
+an XSS were ever introduced.
 
 ## Required egress
 

@@ -1,13 +1,14 @@
 {
   "name": "prometheux-3p-app",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Prometheux Databricks 3P App - Frontend Only",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "helmet": "^7.1.0"
   },
   "keywords": ["databricks", "app", "frontend"],
   "author": "Prometheux",

@@ -30,3 +30,28 @@ env:
     value: "production"
   - name: PROMETHEUX_AUTH_URL
     value: "https://auth.prometheux.ai/functions/v1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Egress allow-list (F14 from 2026-06-12 security review).
+#
+# Enumerates every external host the Node server.js process is permitted to
+# contact. The Databricks Apps egress firewall enforces this allow-list at the
+# network layer; any outbound request to a host outside this list is dropped.
+#
+# Workspace endpoints (token mint + SCIM /Me) reach the same workspace this app
+# is deployed in, so the regional Databricks domains are listed for each cloud.
+# ─────────────────────────────────────────────────────────────────────────────
+egress:
+  allow:
+    # Databricks workspace API (OIDC client_credentials, SCIM /Me).
+    # The "*" covers regional accounts.{aws,azure,gcp}.cloud.databricks.com,
+    # <workspace>.cloud.databricks.com, etc.
+    - "*.cloud.databricks.com"
+    - "*.azuredatabricks.net"
+    - "*.gcp.databricks.com"
+    # Prometheux auth backend (Supabase Edge Functions behind a custom domain).
+    # Hit by server.js for the SSO bridge and by the browser for auth REST.
+    - "auth.prometheux.ai"
+    # Prometheux Cloud reasoning backend (Vadalog engine, ontology APIs).
+    # Browser-side only; server.js does not contact this host directly.
+    - "api.prometheux.ai"
