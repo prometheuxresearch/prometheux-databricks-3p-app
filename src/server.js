@@ -36,8 +36,13 @@ console.log('Databricks env keys present:', dbEnvKeys);
 // ─────────────────────────────────────────────────────────────────────────
 // Strict CSP allowing only:
 //   - own origin                              (script/style/img/font/assets)
-//   - https://api.prometheux.ai               (Prometheux Cloud reasoning)
-//   - https://auth.prometheux.ai              (Prometheux auth backend)
+//   - https://api.prometheux.ai               (Prometheux Cloud reasoning REST)
+//   - wss://api.prometheux.ai                 (Prometheux Cloud streaming —
+//                                              concept editor, machine status,
+//                                              dashboard subscriptions; CSP
+//                                              treats wss:// as a separate
+//                                              scheme from https://)
+//   - https://auth.prometheux.ai              (Prometheux auth backend REST)
 // No external CDN scripts; no inline scripts. 'unsafe-inline' is allowed for
 // styles only (React inline `style={{}}` attributes + Tailwind animations).
 // frame-ancestors 'self' prevents clickjacking; the app runs as a top-level
@@ -52,7 +57,12 @@ app.use(
         'style-src':    ["'self'", "'unsafe-inline'"],
         'img-src':      ["'self'", 'data:', 'blob:'],
         'font-src':     ["'self'", 'data:'],
-        'connect-src':  ["'self'", 'https://api.prometheux.ai', 'https://auth.prometheux.ai'],
+        'connect-src':  [
+          "'self'",
+          'https://api.prometheux.ai',
+          'wss://api.prometheux.ai',
+          'https://auth.prometheux.ai',
+        ],
         'worker-src':   ["'self'", 'blob:'],
         'frame-ancestors': ["'self'"],
         'base-uri':     ["'self'"],

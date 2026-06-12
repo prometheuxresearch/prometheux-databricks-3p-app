@@ -37,9 +37,10 @@ Every `/api/*` request is logged with the proxy-validated user identity
 duration, for audit traceability of shared-SP actions (F16).
 
 A strict Content-Security-Policy header is set by the server on every response
-(F9). It allows `connect-src` only to `'self'`, `https://api.prometheux.ai`
-and `https://auth.prometheux.ai` — preventing any token exfiltration even if
-an XSS were ever introduced.
+(F9). It allows `connect-src` only to `'self'`, `https://api.prometheux.ai`,
+`wss://api.prometheux.ai` (streaming endpoints for the concept editor, machine
+status and dashboard subscriptions) and `https://auth.prometheux.ai` —
+preventing any token exfiltration even if an XSS were ever introduced.
 
 ## Required egress
 
