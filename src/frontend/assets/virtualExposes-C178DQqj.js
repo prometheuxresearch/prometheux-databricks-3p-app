@@ -1,0 +1,1 @@
+import{t as e}from"./virtual_mf-exposes___mfe_internal__host__remoteEntry-_hash_-DlEbKi-G.js";export{e as default};

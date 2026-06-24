@@ -233,8 +233,13 @@ async function fetchPrincipalIdentity() {
     throw new Error(`SCIM /Me failed (${resp.status}): ${text}`);
   }
   const me = await resp.json();
+  // SCIM /Me returns the workspace-internal numeric SP id. We expose it so the
+  // frontend can build a deep link to the SP's secrets page in the workspace
+  // admin UI (.../settings/iam/service-principals/<id>) without the user
+  // hunting for it manually.
   return {
-    userName: me.userName || null,
+    id:          me.id          || null,
+    userName:    me.userName    || null,
     displayName: me.displayName || null,
   };
 }
@@ -282,7 +287,7 @@ function requireProxyIdentity(req, res, next) {
 // by /api/user-token (see below).
 app.get('/api/app-context', requireProxyIdentity, async (req, res) => {
   try {
-    let principal = { userName: null, displayName: null };
+    let principal = { id: null, userName: null, displayName: null };
     try {
       principal = await getPrincipalIdentity();
     } catch (err) {
@@ -295,7 +300,8 @@ app.get('/api/app-context', requireProxyIdentity, async (req, res) => {
       clientId: DATABRICKS_CLIENT_ID,
       appName: DATABRICKS_APP_NAME,
       workspaceId: DATABRICKS_WORKSPACE_ID,
-      principalUserName: principal.userName,
+      principalId:          principal.id,
+      principalUserName:    principal.userName,
       principalDisplayName: principal.displayName,
       user: {
         email:    req.headers['x-forwarded-email']               || null,
