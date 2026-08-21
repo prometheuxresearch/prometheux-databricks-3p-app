@@ -1,6 +1,6 @@
 {
   "name": "prometheux-3p-app",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Prometheux Databricks 3P App - Frontend Only",
   "main": "server.js",
   "scripts": {

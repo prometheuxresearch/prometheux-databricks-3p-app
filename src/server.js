@@ -1,6 +1,7 @@
 const express = require('express');
 const helmet = require('helmet');
 const path = require('path');
+const dns = require('dns').promises;
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -117,16 +118,34 @@ app.use((req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────
 // Client receives a generic message; full diagnostic detail is logged
 // server-side only. Avoids leaking upstream OIDC/SCIM/SSO response text.
+//
+// Node's fetch (undici) surfaces network failures as a top-level
+// Error with message "fetch failed" and the actual OS-level reason
+// nested inside err.cause (ENOTFOUND, ECONNREFUSED, ETIMEDOUT, CERT_*,
+// UND_ERR_SOCKET, …). Log the whole chain so container logs make the
+// root cause obvious for support (v1.0.3+).
+function describeError(e) {
+  if (!e || typeof e !== 'object') return String(e || 'unknown');
+  const parts = [];
+  if (e.message) parts.push(e.message);
+  if (e.code)    parts.push(`code=${e.code}`);
+  if (e.errno)   parts.push(`errno=${e.errno}`);
+  if (e.syscall) parts.push(`syscall=${e.syscall}`);
+  if (e.address) parts.push(`address=${e.address}`);
+  if (e.port)    parts.push(`port=${e.port}`);
+  if (e.cause)   parts.push(`cause=[${describeError(e.cause)}]`);
+  return parts.join(' ');
+}
+
 function sendSanitizedError(req, res, statusCode, internalErr, clientMessage) {
-  const detail = internalErr && internalErr.message
-    ? internalErr.message
-    : String(internalErr || 'unknown');
+  const detail = describeError(internalErr);
   console.error(`[error] ${req.method} ${req.path} → ${statusCode}: ${detail}`);
   auditLog('api_error', {
     method:  req.method,
     path:    req.path,
     status:  statusCode,
     user:    req.headers['x-forwarded-email'] || null,
+    detail,
   });
   return res.status(statusCode).json({ error: clientMessage || 'Upstream request failed' });
 }
@@ -408,6 +427,73 @@ app.post('/api/prometheux-sso', requireProxyIdentity, async (req, res) => {
   } catch (err) {
     return sendSanitizedError(req, res, 502, err, 'SSO bridge unreachable');
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// /api/network-check — container-side connectivity diagnostic
+// ─────────────────────────────────────────────────────────────────────────
+// A safe read-only probe the customer's admin (or Prometheux support) can
+// hit to prove/disprove that the App container itself can reach our two
+// upstream domains. Runs entirely inside the Databricks Apps sandbox, so
+// results reflect the container's egress policy — NOT a notebook cluster's.
+//
+// Returns proxy env vars, Node version, resolved IPs (v4 + v6) and the
+// verbose fetch outcome for each target. Never returns secrets or tokens.
+// Gated by requireProxyIdentity so only authenticated workspace users can
+// hit it.
+async function probeHost(url) {
+  const started = Date.now();
+  const out = { url, dns: {}, fetch: {} };
+  try {
+    const parsed = new URL(url);
+    try {
+      const [v4, v6] = await Promise.allSettled([
+        dns.resolve4(parsed.hostname),
+        dns.resolve6(parsed.hostname),
+      ]);
+      out.dns.a    = v4.status === 'fulfilled' ? v4.value    : `err=${describeError(v4.reason)}`;
+      out.dns.aaaa = v6.status === 'fulfilled' ? v6.value    : `err=${describeError(v6.reason)}`;
+    } catch (e) {
+      out.dns.error = describeError(e);
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      const resp = await fetch(url, { method: 'HEAD', signal: ctrl.signal });
+      out.fetch.status = resp.status;
+    } catch (e) {
+      out.fetch.error = describeError(e);
+    } finally {
+      clearTimeout(t);
+    }
+  } catch (e) {
+    out.error = describeError(e);
+  }
+  out.elapsedMs = Date.now() - started;
+  return out;
+}
+
+app.get('/api/network-check', requireProxyIdentity, async (req, res) => {
+  const authBase = PROMETHEUX_AUTH_URL || 'https://auth.prometheux.ai';
+  const results = {
+    node: process.version,
+    proxyEnv: {
+      HTTP_PROXY:  process.env.HTTP_PROXY  || process.env.http_proxy  || null,
+      HTTPS_PROXY: process.env.HTTPS_PROXY || process.env.https_proxy || null,
+      NO_PROXY:    process.env.NO_PROXY    || process.env.no_proxy    || null,
+    },
+    authUrlConfigured: !!PROMETHEUX_AUTH_URL,
+    probes: [
+      await probeHost(`${authBase}/`),
+      await probeHost('https://api.prometheux.ai/'),
+      await probeHost(`${workspaceUrl()}/`),
+    ],
+  };
+  auditLog('network_check', {
+    user: req.headers['x-forwarded-email'] || null,
+    ok:   results.probes.every((p) => p.fetch && p.fetch.status),
+  });
+  res.set('Cache-Control', 'no-store').json(results);
 });
 
 // ─────────────────────────────────────────────────────────────────────────
